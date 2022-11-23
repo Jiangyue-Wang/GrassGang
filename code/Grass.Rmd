@@ -1,0 +1,352 @@
+---
+title: "Grass"
+author: "WangJY"
+date: "2022-11-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,warning = FALSE,message=FALSE)
+rm(list=ls())
+gc()
+# setwd("~/Desktop/phD/AFEC-X/GrassGang")
+```
+
+## C3/C4 matching
+```{r}
+library(readxl)
+library(stringr)
+library(tidyverse)
+genuslevel <- read_xls("~/Desktop/phD/AFEC-X/GrassGang/data/genus-level.xls",sheet=1)[-c(1:6),]
+colnames(genuslevel) <- genuslevel[1,]
+genuslevel <- genuslevel[-1,]
+genuslevel$genus <- str_split_fixed(genuslevel$`Genus Authority`,pattern=" ",n=2)[,1]
+genuslevel <- genuslevel[,c("genus","Photosynthetic types")]
+
+specieslevel <- read_xls("~/Desktop/phD/AFEC-X/GrassGang/data/species-level.xls",sheet=1)[-c(1:2),]
+colnames(specieslevel) <- specieslevel[1,]
+specieslevel <- specieslevel[-1,]
+specieslevel <- specieslevel[,c("Species","Pathway")]
+```
+
+Now I have cleaned up dataset for C3 and C4 plant list, on genus level and species level. See below:
+```{r}
+head(genuslevel)
+head(specieslevel)
+```
+
+```{r}
+arid <- read.csv("~/Desktop/phD/AFEC-X/GrassGang/data/poaceae_mean_aridity.csv")
+any(specieslevel$Species %in% arid$Species)
+
+unique(genuslevel$`Photosynthetic types`)
+genuslevel$`Photosynthetic types`[genuslevel$`Photosynthetic types`!="C3"&genuslevel$`Photosynthetic types`!="C4"&genuslevel$`Photosynthetic types`!="unknown"] <- "both"
+
+unique(specieslevel$Pathway)
+specieslevel$Pathway[specieslevel$Pathway=="C3-C4?"]<- "both"
+
+
+head(arid)
+
+GrassDataset<-arid %>% mutate(Species_old=Species,aridity.ch,count=x1,authors_WCVP,rank,accepted_name,accepted_authors,accepted_genus,accepted_family,accepted_order) %>%
+  filter(!is.na(aridity.ch)) %>%
+  dplyr::select(Species_old,aridity.ch,count,authors_WCVP,rank,accepted_name,accepted_authors,accepted_genus,accepted_family,accepted_order)
+summary(GrassDataset$aridity.ch)
+
+colnames(genuslevel)[1] <- c("accepted_genus")
+GrassDataset <- left_join(GrassDataset,genuslevel)
+unique(GrassDataset$`Photosynthetic types`)
+
+colnames(specieslevel)[1] <- "Species_old"
+GrassDataset <- left_join(GrassDataset,specieslevel)
+GrassDataset[!is.na(GrassDataset$Pathway),"Photosynthetic types"] <- GrassDataset[!is.na(GrassDataset$Pathway),"Pathway"]
+GrassDataset <- GrassDataset[,c(1:11)]
+# write.csv(GrassDataset,"data/GrassDataset.csv",row.names=F)
+```
+
+Now I have complete dataset for Poaceae grass, with photosynthetic pathways.
+
+## Cellulose against aridity index
+
+```{r}
+library(data.table)
+library(openxlsx)
+cellulose <- read_xlsx("~/Desktop/phD/AFEC-X/GrassGang/data/Lee2018_Article_AGlobalComparisonOfTheNutritiv SUPPLEMENTARY.xlsx",sheet=2)
+cellulose <- cellulose[-c(1:4),1:12]
+colnames(cellulose)<-cellulose[1,]
+cellulose <- cellulose[-1,]
+
+tmp <- GrassDataset[,c("Species_old","aridity.ch","accepted_name")]
+colnames(tmp)[1:2] <- c("Species" ,"arid1")
+cellulose <- left_join(cellulose,tmp[,c(1:2)])
+tmp <- GrassDataset[,c("Species_old","aridity.ch","accepted_name")]
+colnames(tmp)[2:3] <- c("arid2","Species" )
+cellulose <- left_join(cellulose,tmp[,c(2:3)])
+
+cellulose[is.na(cellulose$arid2)&!is.na(cellulose$arid1),"arid2"]<-cellulose[is.na(cellulose$arid2)&!is.na(cellulose$arid1),"arid1"]
+
+cellulose <- cellulose[,c(1,7:12,14)]
+summary(cellulose)
+cellulose$ADF<- as.numeric(cellulose$ADF)
+cellulose$ADL<- as.numeric(cellulose$ADL)
+cellulose$Ash<- as.numeric(cellulose$Ash)
+cellulose$CP<- as.numeric(cellulose$CP)
+cellulose$DM<- as.numeric(cellulose$DM)
+cellulose$NDF<- as.numeric(cellulose$NDF)
+
+cellulose <- cellulose[!is.na(cellulose$NDF)&!is.na(cellulose$arid2),]
+summary(cellulose)
+cellulose$Species <- as.factor(cellulose$Species)
+meanna <- function(vector){
+  return(mean(vector,na.rm=T))
+}
+cell_agg <- aggregate(cellulose, by=list(cellulose$Species),FUN=mean)
+cell_agg <- cell_agg[,-2]
+colnames(cell_agg)[1]<- "Species"
+
+tmp <- GrassDataset[,c("Species_old","Photosynthetic types","accepted_name")]
+colnames(tmp)[1:2] <- c("Species","Pathway1")
+cell_comp <- unique(left_join(cell_agg,tmp[1:2]))
+
+tmp <- GrassDataset[,c("Species_old","Photosynthetic types","accepted_name")]
+colnames(tmp)[2:3] <- c("Pathway2","Species")
+cell_comp <- unique(left_join(cell_comp,tmp[2:3]))
+
+#all same
+cell_comp <- cell_comp[,-10]
+hist(sqrt(cell_comp$arid2))
+cell_comp$arid2.sqrt <- sqrt(cell_comp$arid2)
+hist((cell_comp$NDF))
+
+
+
+
+
+cell_supp<-read.xlsx("/Users/lilywang/Desktop/phD/AFEC-X/GrassGang/data/Grass cellulose.xlsx",sheet=1)
+unique(cell_supp[,1])
+cell_supp[cell_supp$Name=="Cenchrus ciliaris ",1]<-"Cenchrus ciliaris"
+cell_supp[cell_supp$Name=="Cynodon dactylon ",1]<-"Cynodon dactylon"
+cell_supp[cell_supp$Name=="Dichanthium annulatum ",1]<-"Dichanthium annulatum"
+cell_supp[cell_supp$Name=="Panicum coloratum ",1]<-"Panicum coloratum"
+cell_supp_agg<-aggregate(cell_supp,by=list(cell_supp$Name),FUN=meanna)
+cell_supp_agg<-cell_supp_agg[,-2]
+tmp <- GrassDataset[,c("Species_old","aridity.ch","accepted_name","count","Photosynthetic types")]
+colnames(tmp)[1]<-"Group.1"
+cell_supp_agg <- left_join(cell_supp_agg,tmp[,c(1,2,4,5)])
+colnames(cell_supp_agg)[7]<- "Pathway1"
+
+tmp <- GrassDataset[,c("Species_old","aridity.ch","accepted_name","count","Photosynthetic types")]
+colnames(tmp)[3]<-"Group.1"
+cell_supp_agg <- left_join(cell_supp_agg,tmp[,c(2,3,4,5)])
+
+cell_supp_agg$arid.sqrt<-sqrt(cell_supp_agg$aridity.ch)
+hist(cell_supp_agg$Cellulose)
+
+
+cell_supp_agg%>%filter(!is.na(Pathway1))%>%ggplot()+aes(x=arid.sqrt,y=NDF,colour=Pathway1)+geom_point()+geom_smooth(method="lm")
+cell_supp_agg%>%filter(!is.na(Pathway1))%>%ggplot()+aes(x=arid.sqrt,y=Cellulose,colour=Pathway1)+geom_point()+geom_smooth(method="lm")
+cell_supp_agg%>%filter(!is.na(Pathway1))%>%ggplot()+aes(x=arid.sqrt,y=Hemicellulose,colour=Pathway1)+geom_point()+geom_smooth(method="lm")
+
+ 
+  
+cell_comp %>% filter(Pathway1=="C3"|Pathway1=="both")%>%ggplot()+aes(x=arid2.sqrt,y=NDF)+geom_point()+geom_smooth(method="lm")
+
+
+cell_comp%>%filter(Pathway1!="both")%>%ggplot()+aes(x=arid2.sqrt,y=ADF-ADL,colour=Pathway1)+geom_point()+geom_smooth(method="lm")+ylab("Cellulose")
+
+
+
+
+any(cell_supp_agg$Group.1%in%cell_comp[,"Species"])
+cell_supp_agg<-unique(cell_supp_agg)
+
+cell_new <- cell_supp_agg[!cell_supp_agg$Group.1%in%cell_comp[,"Species"],]
+cell_exist <- cell_supp_agg[cell_supp_agg$Group.1%in%cell_comp[,"Species"],]
+
+cell_append <- data.frame(Species=c(cell_comp$Species,cell_new$Group.1),NDF=c(cell_comp$NDF,cell_new$NDF),Cellulose=c(cell_comp$ADF-cell_comp$ADL,cell_new$Cellulose),Pathway=c(cell_comp$Pathway1,cell_new$Pathway1),arid.sqrt=c(cell_comp$arid2.sqrt,cell_new$arid.sqrt))
+
+cell_append<-unique(cell_append)
+
+cell_append[cell_append$Species%in%cell_exist$Group.1,"Cellulose"] <- cell_exist[,"Cellulose"]
+
+
+
+cell_append%>%filter(!is.na(Pathway)&Pathway!="both")%>%ggplot()+aes(x=arid.sqrt,y=NDF,colour=Pathway)+geom_point()+geom_smooth(method="lm")
+cell_append%>%filter(!is.na(Pathway)&Pathway!="both")%>%ggplot()+aes(x=arid.sqrt,y=Cellulose,colour=Pathway)+geom_point()+geom_smooth(method="lm")
+
+
+
+
+cell_append2 <- cell_append[!is.na(cell_append$Pathway)&cell_append$Pathway!="both",]
+cell_append2$Pathway <- as.factor(cell_append2$Pathway)
+summary(lm(Cellulose~arid.sqrt*Pathway, data=cell_append2))
+
+
+```
+
+
+Not pattern we suggested, Now I will try leaf trait
+
+#Leaf trait
+
+```{r}
+trait <- read.csv("/Users/lilywang/Desktop/phD/AFEC-X/GrassGang/data/TRY_traitdata_poales.csv")
+head(trait)
+colnames(trait)[1]<-"Species_old"
+
+grasstrait <- left_join(GrassDataset,trait[,1:5])
+head(grasstrait)
+
+grasstrait$arid.sqrt <- sqrt(grasstrait$aridity.ch)
+str(grasstrait)
+head(grasstrait)
+grasstrait <- grasstrait[grasstrait$count>=10,]
+p1<-ggplot(grasstrait,aes(x=arid.sqrt,y=logSLA))+geom_point()+geom_smooth(method="lm");
+p2<-ggplot(grasstrait,aes(x=arid.sqrt,y=LDMC))+geom_point()+geom_smooth(method="lm");
+p3<-ggplot(grasstrait,aes(x=arid.sqrt,y=logLArea))+geom_point()+geom_smooth(method="lm");
+p4<-ggplot(grasstrait,aes(x=arid.sqrt,y=leafN.sqrt))+geom_point()+geom_smooth(method="lm")
+library(patchwork)
+p1+p2+p3+p4
+
+```
+
+Now try leaf thickness
+
+```{r}
+library(data.table)
+pth <- fread("/Users/lilywang/Desktop/phD/AFEC-X/GrassGang/data/leaf_thickness_w poaceae/23473.txt")
+allth <- fread("/Users/lilywang/Desktop/phD/AFEC-X/GrassGang/data/leaf_thickness/23472.txt")
+head(allth)
+
+pthf<-allth %>% filter(AccSpeciesName%in%GrassDataset$accepted_name)
+rm(allth)
+gc()
+head(pthf)
+pthf <-pthf %>% filter(!is.na(TraitID))
+# write.csv(pthf,"/Users/lilywang/Desktop/phD/AFEC-X/GrassGang/data/poaceae_leafthickness.csv",row.names=F)
+# pthf <- read.csv("/Users/lilywang/Desktop/phD/AFEC-X/GrassGang/data/poaceae_leafthickness.csv")
+head(pthf)
+pthf <- pthf[,c("AccSpeciesName","StdValue")]
+colnames(pthf)[1]<-"accepted_name"
+pthf <- aggregate(pthf,by=list(pthf$accepted_name),FUN=meanna)
+pthf <- pthf[,-2]
+pthf  <- pthf %>% filter(!is.nan(StdValue))
+colnames(pthf)[1]<-"accepted_name"
+thick <- left_join(GrassDataset,pthf)
+thick$arid.sqrt <- sqrt(thick$aridity.ch)
+hist(log(thick$StdValue))
+thick$thick.log <- log(thick$StdValue)
+thick %>% filter(count>=10&!is.na(thick.log))%>%ggplot()+aes(x=arid.sqrt,y=thick.log)+geom_point()+geom_smooth(method="lm")
+
+```
+
+##Grass distribution data
+```{r, eval=FALSE}
+grassdistri <- fread("~/Desktop/phD/AFEC-X/GrassGang/data/BIEN_poaceae.csv")
+head(grassdistri)
+length(unique(grassdistri$Species))
+plot(grassdistri[,c("longmid","latmid")])
+summary((grassdistri %>% count(Species))$n)
+library(rgdal)
+coordinates(grassdistri)<-c("longmid","latmid")
+proj4string(grassdistri) <- CRS('+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs')
+mollweide <- "+proj=moll +lon_0=0 +x_0=0 +y_0=0 +ellps=WGS84"
+
+library(raster)
+airas <- raster("~/Desktop/phD/AFEC-X/GrassGang/data/Aridity/ai_v3_yr.tif")
+plot(airas)
+crs(airas) #WGS1984
+res(airas) # 0.0083333
+airas_agg <- aggregate(airas, fact=60, fun=mean)
+# writeRaster(airas_agg,"~/Desktop/phD/AFEC-X/GrassGang/data/Aridity/aridity_0.5deg.tif")
+rm(airas)
+gc()
+
+res(airas_agg)
+summary(values(airas_agg))
+values(airas_agg) <- values(airas_agg)*0.0001
+plot(airas_agg)
+Global_Cell <- as.data.frame(rasterToPoints(airas_agg))
+Global_Cell$ID=1:length(values(airas_agg))
+Global_Cell$AI <- extract(airas_agg,Global_Cell[,c("x","y")],method="simple")
+
+Global_Cell <- Global_Cell[,c("ID","x","y","AI")]
+# Global_Cell[Global_Cell$AI==0,"AI"]<-NA
+# Global_Cell <- filter(Global_Cell,!is.na(AI))
+summary(Global_Cell)
+write.csv(Global_Cell,"~/Desktop/phD/AFEC-X/GrassGang/data/Global_Cell.csv",row.names=F)
+grassgrid <- rasterFromXYZ(Global_Cell[,c("x","y","ID")])
+
+
+GrassDistri <- grassdistri@data %>% count(Species)
+# dir.create("~/Desktop/phD/AFEC-X/GrassGang/data/GrassDistri")
+pb <- txtProgressBar(min=1,max=nrow(GrassDistri))
+for(i in 1:nrow(GrassDistri)){
+  setTxtProgressBar(pb,i)
+  grassco<-matrix(grassdistri@coords[grassdistri@data$Species==GrassDistri$Species[i],],ncol=2)
+  grasstmp <- extract(grassgrid,grassco)
+  write.csv(grasstmp,paste0("~/Desktop/phD/AFEC-X/GrassGang/data/GrassDistri/",GrassDistri$Species[i],".csv"),row.names = F)
+}
+close(pb)
+GrassDistri$sp.file <- paste0("~/Desktop/phD/AFEC-X/GrassGang/data/GrassDistri/",GrassDistri$Species,".csv")
+
+
+```
+
+Now see the geographic relationship between aridity  index and NDF
+```{r}
+Global_Cell <- read.csv("~/Desktop/phD/AFEC-X/GrassGang/data/Global_Cell.csv")
+grassdistri <- fread("~/Desktop/phD/AFEC-X/GrassGang/data/BIEN_poaceae.csv")
+library(rgdal)
+library(raster)
+coordinates(grassdistri)<-c("longmid","latmid")
+proj4string(grassdistri) <- CRS('+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs')
+GrassDistri <- grassdistri@data %>% count(Species)
+GrassDistri$sp.file <- paste0("~/Desktop/phD/AFEC-X/GrassGang/data/GrassDistri/",GrassDistri$Species,".csv")
+head(cellulose)
+dim(cellulose)
+all(cellulose$Species%in%GrassDistri$Species)
+summary(cellulose$NDF)
+
+cellulose2 <- unique(cellulose[,-ncol(cellulose)]) %>% filter(!is.na(NDF))
+Global_Cell$cell.count<-0
+Global_Cell$NDF.sum<-0
+
+pb <- txtProgressBar(min=0,max=nrow(cellulose2))
+for(i in 1:nrow(cellulose2)){
+  setTxtProgressBar(pb,i)
+  tmp <- fread(GrassDistri[GrassDistri$Species==cellulose2$Species[i],"sp.file"])
+  Global_Cell[Global_Cell$ID%in%tmp$x,"cell.count"] <-Global_Cell[Global_Cell$ID%in%tmp$x,"cell.count"]+1
+  Global_Cell[Global_Cell$ID%in%tmp$x,"NDF.sum"] <-Global_Cell[Global_Cell$ID%in%tmp$x,"NDF.sum"]+cellulose2$NDF[i]
+}
+close(pb)
+
+
+Global_Cell$NDF.mean <- Global_Cell$NDF.sum/Global_Cell$cell.count
+
+plot(rasterFromXYZ(Global_Cell[,c("x","y","NDF.mean")]))
+
+Glo.cell <- Global_Cell[Global_Cell$cell.count>0,]
+
+summary(Glo.cell$cell.count)
+Glo.cell$AI.sqrt <- sqrt(Glo.cell$AI)
+Glo.cell$NDF.log <- log(Glo.cell$NDF.mean)
+ggplot(Glo.cell,aes(x=AI.sqrt,y=NDF.log))+geom_point()+geom_smooth(method="lm")
+
+
+summary(lm(NDF.log~AI.sqrt,data=Glo.cell))
+```
+
+##AusTraits
+Still cannot find the traits we need...
+```{r, eval=FALSE}
+remotes::install_github("traitecoevo/austraits", 
+                        dependencies = TRUE, upgrade = "ask", 
+                        build_vignettes = TRUE)
+
+vignette("austraits")
+library(austraits)
+austraits <- load_austraits(version = "3.0.2", path = "data/austraits")
+summarise_austraits(austraits, "trait_name")$trait_name
+```
+

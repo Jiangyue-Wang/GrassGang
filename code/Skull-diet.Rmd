@@ -1,0 +1,471 @@
+---
+title: "Skull-Diet"
+author: "WangJY"
+date: "2022-11-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message=FALSE)
+library(readxl)
+library(openxlsx)
+library(tidyverse)
+
+library(arm)
+library(car)
+library(ggplot2)
+library(ggrepel) #NEW LIBRARY!!
+library(lme4) 
+library(ape)
+library(multcomp)
+library(nlme)
+library(visreg)
+library(coefplot)
+library(jtools)
+library(Matrix)
+library(lmerTest)
+library(MuMIn)
+library(multcomp)
+require(graphics)
+```
+
+## Diet matrix
+Diet data is collected from published articles, reference within table.
+
+```{r Data processing from excel}
+#specify file location
+diet.data <- "/Users/lilywang/Desktop/phD/AFEC-X/Skull/Grass Gang/20221118_Herbivore_Diet_Database Grazers.xlsx"
+
+excel_sheets(path = diet.data)
+
+#extract diet data matrix
+diet <- read_excel(diet.data, "Diet matrix",skip=5, col_types = c(rep("text",13),rep("numeric",12),rep("text",5),rep("numeric",33),rep("text",5)))
+
+diet <- data.frame(diet)
+
+head(diet)
+diet$Binomial.name <- as.factor(diet$Binomial.name)
+diet$Study<-as.factor(diet$Study)
+diet$Output.Binomial.name <- as.factor(diet$Output.Binomial.name)
+diet$Order <- as.factor(diet$Order)
+diet$Family <- as.factor(diet$Family)
+
+head(diet)
+summary(diet)
+dim(diet)
+#reduce to columns of species for which we have data
+diet <- diet[,colSums(is.na(diet))<nrow(diet)]
+summary(diet)
+dim(diet)
+#check for inconsistencies in trait allocation  for plant species
+dietplants <- diet[,c("Output.Binomial.name","Family","Order","Graminoid","Monocot","Woody","Spines")]
+dietplants $x1 <- c(rep(1,each = (dim(dietplants)[1])))
+namelist <- aggregate(x1~Output.Binomial.name+Graminoid+Monocot+Woody+Spines+Family+Order,dietplants,FUN=sum,na.action=na.omit) # calculate how many obs per plant
+dim(namelist)
+head(namelist)
+summary(namelist$Output.Binomial.name)
+
+#most spp should only have 1 record, except for species where leaves and fruits have been eaten
+summary(namelist)
+
+#check individual species
+diet.spp <- subset(diet,!is.na(Alcelaphus_buselaphus))
+dim(diet.spp)
+#reduce to columns of species for which we have data
+diet.spp <- diet.spp[,colSums(is.na(diet.spp))<nrow(diet.spp)]
+summary(diet.spp)
+diet.spp$Binomial.name <- as.factor(diet.spp$Binomial.name)
+diet.spp <- diet.spp[order(-diet.spp$Spines), ]
+head(diet.spp,n=10)
+```
+
+Now I have cleaned up the diet spreadsheet. Next I will calculate diet proportion for each species in each study-season combination.
+```{r calculate proportional diet sums}
+#now lets average per study per season first
+#Why? because its very imbalanced to use multiple seasons for 1 study and 1 season for 1 study
+
+head(diet,n=10)
+dim(diet)
+diet$study.season <- as.factor(paste(diet$Study,diet$Season))
+head(diet$study.season,n=50)
+
+str(diet$study.season)
+study.season.list <- unique(diet$study.season)
+length(study.season.list)
+
+
+#NOTE the following loop is critical.
+#it gets diet proportions AND  it gets community weighted mean traits in diets of each herbivore species in each season measured
+
+diets.out <-NULL
+
+for(i in 1:length(study.season.list)){
+  print(i)
+  df1 <- subset(diet,study.season==study.season.list[i])
+  #df1 <- subset(diet,study.season=="132.Winter")
+  dim(df1)
+  
+  # calculate sum of diet
+  #WATCH OUT! the position of the first column may change!!
+  diet1stcol <- which(colnames(df1)=="Site")+1
+  dietlastcol <- which(colnames(df1)=="Study2")-1
+  diet.sum.df <- data.frame(colSums(df1[,c(diet1stcol:dietlastcol)],na.rm=T))
+  names(diet.sum.df) <- "sum"
+  #diet.sum.df
+  
+  # calculate graminoid proportions
+  gram.df <- subset(df1,Graminoid==1)
+  diet.graminoid.df <- data.frame(colSums(gram.df[,c(diet1stcol:dietlastcol)],na.rm=T))
+  names(diet.graminoid.df) <- "graminoid"
+  #diet.graminoid.df
+  
+  # calculate monocot proportions
+  monocot.df <- subset(df1,Monocot==1)
+  diet.monocot.df <- data.frame(colSums(monocot.df[,c(diet1stcol:dietlastcol)],na.rm=T))
+  names(diet.monocot.df) <- "monocot"
+  #diet.monocot.df
+  
+  # calculate spiny plant proportions
+  spiny.df <- subset(df1,Spines==1)
+  diet.spine.df <- data.frame(colSums(spiny.df[,c(diet1stcol:dietlastcol)],na.rm=T))
+  names(diet.spine.df) <- "spines"
+  #diet.spine.df
+  
+  # calculate woody plant proportions
+  woody.df <- subset(df1,Woody==1)
+  diet.woody.df <- data.frame(colSums(woody.df[,c(diet1stcol:dietlastcol)],na.rm=T))
+  names(diet.woody.df) <- "woody"
+  
+  
+  # calculate forb plant proportions
+  forb.df <- subset(df1,Forb==1)
+  diet.forb.df <- data.frame(colSums(forb.df[,c(diet1stcol:dietlastcol)],na.rm=T))
+  names(diet.forb.df) <- "forb"
+  
+  #calculate herb component as sum of monocots and forbs
+  diet.herb.df <- diet.monocot.df + diet.forb.df
+  names(diet.herb.df) <- "herb"
+  
+  # calculate fruit&flower plant proportions
+  fruit.df <- subset(df1,Fruit.Flowers==1)
+  diet.fruit.df <- data.frame(colSums(fruit.df[,c(diet1stcol:dietlastcol)],na.rm=T))
+  names(diet.fruit.df) <- "fruit"
+  
+  # calculate bryophyte,Lich.Fungi proportions
+  BLF.df <- subset(df1,Bryo.Lich.Fungi==1)
+  diet.BLF.df <- data.frame(colSums(BLF.df[,c(diet1stcol:dietlastcol)],na.rm=T))
+  names(diet.BLF.df) <- "BLF"
+  
+  # calculate unknown diet proportions
+  unknown.df <- subset(df1,Unknown==1)
+  diet.unknown.df <- data.frame(colSums(unknown.df[,c(diet1stcol:dietlastcol)],na.rm=T))
+  names(diet.unknown.df) <- "unknown"
+  
+  #check total sum for food components
+  diet.total.df <- diet.monocot.df + diet.woody.df  + diet.forb.df + diet.fruit.df + diet.BLF.df + diet.unknown.df
+  names(diet.total.df) <- "total"
+  
+  
+  #calculate average log leaf area
+  LA.df <- subset(df1,!is.na(logLArea))
+  #total sum
+  diet.df1.tot <- data.frame(colSums(df1[,c(diet1stcol:dietlastcol)],na.rm=T))
+  #need to multiply onto proportions
+  diet.LA.tot <- data.frame(colSums(LA.df[,c(diet1stcol:dietlastcol)],na.rm=T))
+  ratio = max(diet.df1.tot)/max(diet.LA.tot)
+  #need to multiply onto proportions
+  LA.df2 <- LA.df
+  dim(LA.df);dim(LA.df2)
+  LA.df2[,c(diet1stcol:dietlastcol)] <- LA.df[,c(diet1stcol:dietlastcol)]*LA.df$logLArea*ratio  #was 31?
+  diet.LA.df <- data.frame(colSums(LA.df2[,c(diet1stcol:dietlastcol)],na.rm=T))
+  names(diet.LA.df) <- "logLArea"
+  
+ 
+  #calculate average log SLA
+  SLA.df <- subset(df1,!is.na(logSLA))
+  #total sum
+  diet.df1.tot <- data.frame(colSums(df1[,c(diet1stcol:dietlastcol)],na.rm=T))
+  #need to multiply onto proportions
+  diet.SLA.tot <- data.frame(colSums(SLA.df[,c(diet1stcol:dietlastcol)],na.rm=T))
+  ratio = max(diet.df1.tot)/max(diet.SLA.tot)
+  #need to multiply onto proportions
+  SLA.df2 <- SLA.df
+  SLA.df2[,c(diet1stcol:dietlastcol)] <- SLA.df[,c(diet1stcol:dietlastcol)]*SLA.df$logSLA*ratio  #was 31?
+  diet.SLA.df <- data.frame(colSums(SLA.df2[,c(diet1stcol:dietlastcol)],na.rm=T))
+  names(diet.SLA.df) <- "logSLA"
+  
+  
+  #calculate average LDMC
+  LDMC.df <- subset(df1,!is.na(LDMC))
+  #total sum
+  diet.df1.tot <- data.frame(colSums(df1[,c(diet1stcol:dietlastcol)],na.rm=T))
+  #need to multiply onto proportions
+  diet.LDMC.tot <- data.frame(colSums(LDMC.df[,c(diet1stcol:dietlastcol)],na.rm=T))
+  ratio = max(diet.df1.tot)/max(diet.LDMC.tot)
+  #need to multiply onto proportions
+  LDMC.df2 <- LDMC.df
+  LDMC.df2[,c(diet1stcol:dietlastcol)] <- LDMC.df[,c(diet1stcol:dietlastcol)]*LDMC.df$LDMC*ratio  #was 31?
+  diet.LDMC.df <- data.frame(colSums(LDMC.df2[,c(diet1stcol:dietlastcol)],na.rm=T))
+  names(diet.LDMC.df) <- "LDMC"
+  
+  
+  #calculate average log leaf nitrogen
+  LN.df <- subset(df1,!is.na(leafN.sqrt))
+  #total sum
+  diet.df1.tot <- data.frame(colSums(df1[,c(diet1stcol:dietlastcol)],na.rm=T))
+  #need to multiply onto proportions
+  diet.LN.tot <- data.frame(colSums(LN.df[,c(diet1stcol:dietlastcol)],na.rm=T))
+  ratio = max(diet.df1.tot)/max(diet.LN.tot)
+  #need to multiply onto proportions
+  LN.df2 <- LN.df
+  LN.df2[,c(diet1stcol:dietlastcol)] <- LN.df[,c(diet1stcol:dietlastcol)]*LN.df$leafN.sqrt*ratio  #was 31?
+  diet.LN.df <- data.frame(colSums(LN.df2[,c(diet1stcol:dietlastcol)],na.rm=T))
+  names(diet.LN.df) <- "leafN.sqrt"
+  
+  
+  
+  #combine together
+  #diets.df <- cbind(diet.sum.df,diet.graminoid.df,diet.monocot.df,diet.spine.df,diet.woody.df)
+  diets.df <- cbind(diet.sum.df,diet.graminoid.df,diet.monocot.df,diet.spine.df,diet.woody.df,diet.forb.df,diet.herb.df,diet.fruit.df,diet.BLF.df,diet.unknown.df,diet.total.df,diet.LA.df,diet.SLA.df,diet.LDMC.df,diet.LN.df)
+  diets.df <- subset(diets.df,sum>0)
+  
+  
+  #add in column with study name
+  diets.df$Study <- factor(c(rep(df1$Study[1],each = (dim(diets.df)[1])))) 
+  #add in column with season name
+  diets.df$Season <- factor(c(rep(df1$Season[1],each = (dim(diets.df)[1])))) 
+  #add in column with species name
+  diets.df$Species <- row.names(diets.df)
+  
+  if(i==1) diets.out <- diets.df
+  if(i>1) diets.out <- rbind(diets.out,diets.df)
+  
+}
+
+summary(diets.out)
+dim(diets.out)
+
+diets.out$Species<- as.factor(diets.out$Species)
+
+summary(diets.out$Species)
+
+subset(diets.out,sum<0.95) #this command checks for sums < 1
+subset(diets.out,sum>1.1) #this command checks for sums > 1
+#usually this means more than one area sampled
+#problem with fractions in study 21B (>1)
+#study 146 may consist of multiple sites
+
+subset(diets.out,Species=="Bubalus_arnee")
+
+dim(diets.out)
+```
+
+Now I have the diet data for each species in each study in each season, so I'll take the average for each study.
+
+```{r diet average per study}
+#now we have the data per species per study per season
+#this is where you can choose useful subsets e.g. average per species across studies, average per species across studies in 
+
+#so lets average per study
+
+diets <- cbind(aggregate(sum~Study+Species,diets.out,FUN=mean),aggregate(graminoid~Study+Species,diets.out,FUN=mean)[3],aggregate(monocot~Study+Species,diets.out,FUN=mean)[3],aggregate(spines~Study+Species,diets.out,FUN=mean)[3],aggregate(woody~Study+Species,diets.out,FUN=mean)[3],aggregate(forb~Study+Species,diets.out,FUN=mean)[3],aggregate(herb~Study+Species,diets.out,FUN=mean)[3],aggregate(fruit~Study+Species,diets.out,FUN=mean)[3],aggregate(BLF~Study+Species,diets.out,FUN=mean)[3],aggregate(unknown~Study+Species,diets.out,FUN=mean)[3],aggregate(total~Study+Species,diets.out,FUN=mean)[3],aggregate(logLArea~Study+Species,diets.out,FUN=mean)[3],aggregate(logSLA~Study+Species,diets.out,FUN=mean)[3],aggregate(LDMC~Study+Species,diets.out,FUN=mean)[3],aggregate(leafN.sqrt~Study+Species,diets.out,FUN=mean)[3])
+
+dim(diets)
+head(diets)
+
+#you should print out this table and check it, to make sure you have no data problems with data input
+# write_csv(diets,"/Users/lilywang/Desktop/phD/AFEC-X/Skull/Grass Gang/Herbivore_sums_check.csv")
+
+
+summary(diets)
+#now to get diet averages..
+diets.ave <- aggregate (cbind(sum,graminoid,monocot,spines,woody,forb,herb,fruit,BLF,unknown,total)~Species,diets,FUN=mean)
+
+
+
+#now average across studies to get a values per species
+
+diets <- cbind(aggregate(sum~Species,diets,FUN=mean),aggregate(graminoid~Species,diets,FUN=mean)[2],aggregate(monocot~Species,diets,FUN=mean)[2],aggregate(spines~Species,diets,FUN=mean)[2],aggregate(woody~Species,diets,FUN=mean)[2],aggregate(herb~Species,diets,FUN=mean)[2],aggregate(logLArea~Species,diets,FUN=mean)[2],aggregate(logSLA~Species,diets,FUN=mean)[2],aggregate(LDMC~Species,diets,FUN=mean)[2],aggregate(leafN.sqrt~Species,diets,FUN=mean)[2])
+
+dim(diets) #rows equal the number of species for which you have diet data
+
+
+#calculate diet proportions
+
+diets$graminoidP <- diets$graminoid/diets$sum
+diets$monocotP <- diets$monocot/diets$sum
+diets$spinyP <- diets$spines/diets$sum
+diets$woodyP <- diets$woody/diets$sum
+diets$herbP <- diets$herb/diets$sum
+
+
+quartz()
+par(mfrow=c(2,4))
+hist(diets$graminoidP)
+hist(diets$monocotP)
+hist(diets$spinyP)
+hist(diets$woodyP)
+hist(diets$logLArea)
+hist(diets$logSLA)  # SLA pretty skew??
+hist(diets$LDMC)
+hist(diets$leafN.sqrt)
+
+
+diets$spinyP.log <- log(diets$spinyP+0.01)
+
+
+
+```
+
+
+## Relationship between diet and skull
+Skull data was collected from skull specimen from museums worldwide. Aridity index was calculated based on its distribution.
+
+```{r}
+Skull<- read.csv("/Users/lilywang/Desktop/phD/AFEC-X/Skull/Grass Gang/skulldata_Grazer.csv",header=T)
+
+summary(Skull)
+dim(Skull)    
+
+
+Skull$Species <- as.factor(Skull$Species)
+Skull$Family <- as.factor(Skull$Family)
+Skull$Subfamily <- as.factor(Skull$Subfamily)
+Skull$Continent <- as.factor(Skull$Continent)
+Skull$Diet <- as.factor(Skull$Diet)
+
+
+#combine diet data with skull data
+
+DF1 <- merge(diets, Skull,by = c("Species"),all.x=T)
+summary(DF1)
+dim(DF1)
+head(DF1)
+
+DF1$Species <- as.factor(DF1$Species)
+length(unique(DF1$Species))
+
+DF1$AI.sqrt <- sqrt(DF1$Aridity.Index)
+
+skulldiet <- DF1
+skulldiet$MZW.log<- log(skulldiet$MZW)
+skulldiet$MASSETER.log <- log(skulldiet$MASSETER)
+skulldiet$length.log<-log(skulldiet$SKULLLENGTH)
+
+MZWlm1 <- lm(MZW.log~length.log+logLArea,data=skulldiet)
+summary(MZWlm1)
+quartz();par(mfrow=c(2,2));plot(MZWlm1)
+
+
+MZWlm2 <- lm(MZW.log~length.log+logSLA,data=skulldiet)
+summary(MZWlm2)
+MZWlm3 <- lm(MZW.log~length.log+LDMC,data=skulldiet)
+summary(MZWlm3)
+MZWlm4 <- lm(MZW.log~length.log+leafN.sqrt,data=skulldiet)
+summary(MZWlm4)
+
+MSTlm1 <- lm(MASSETER.log~length.log+logLArea,data=skulldiet)
+summary(MSTlm1)
+MSTlm2 <- lm(MASSETER.log~length.log+logSLA,data=skulldiet)
+summary(MSTlm2)
+MSTlm3 <- lm(MASSETER.log~length.log+LDMC,data=skulldiet)
+summary(MSTlm3)
+MSTlm4 <- lm(MASSETER.log~length.log+leafN.sqrt,data=skulldiet)
+summary(MSTlm4)
+
+MZWlm1.1<-lm(MZW.log~length.log+logLArea,data=subset(skulldiet,Diet=="Grazer"))
+summary(MZWlm1.1)
+MZWlm2.1 <- lm(MZW.log~length.log+logSLA,data=subset(skulldiet,Diet=="Grazer"))
+summary(MZWlm2.1)
+MZWlm3.1 <- lm(MZW.log~length.log+LDMC,data=subset(skulldiet,Diet=="Grazer"))
+summary(MZWlm3.1)
+MZWlm4.1 <- lm(MZW.log~length.log+leafN.sqrt,data=subset(skulldiet,Diet=="Grazer"))
+summary(MZWlm4.1)
+
+
+MZWlm1.2<-lm(MZW.log~length.log+logLArea,data=subset(skulldiet,Dietdata=="Grazer"))
+summary(MZWlm1.2)
+MZWlm2.2 <- lm(MZW.log~length.log+logSLA,data=subset(skulldiet,Dietdata=="Grazer"))
+summary(MZWlm2.2)
+MZWlm3.2 <- lm(MZW.log~length.log+LDMC,data=subset(skulldiet,Dietdata=="Grazer"))
+summary(MZWlm3.2)
+MZWlm4.2 <- lm(MZW.log~length.log+leafN.sqrt,data=subset(skulldiet,Dietdata=="Grazer"))
+summary(MZWlm4.2)
+
+
+
+MSTlm1.1 <- lm(MASSETER.log~length.log+logLArea,data=subset(skulldiet,Diet=="Grazer"))
+summary(MSTlm1.1)
+MSTlm2.1 <- lm(MASSETER.log~length.log+logSLA,data=subset(skulldiet,Diet=="Grazer"))
+summary(MSTlm2.1)
+MSTlm3.1 <- lm(MASSETER.log~length.log+LDMC,data=subset(skulldiet,Diet=="Grazer"))
+summary(MSTlm3.1)
+MSTlm4.1 <- lm(MASSETER.log~length.log+leafN.sqrt,data=subset(skulldiet,Diet=="Grazer"))
+summary(MSTlm4.1)
+
+
+MSTlm1.2 <- lm(MASSETER.log~length.log+logLArea,data=subset(skulldiet,Dietdata=="Grazer"))
+summary(MSTlm1.2)
+MSTlm2.2 <- lm(MASSETER.log~length.log+logSLA,data=subset(skulldiet,Dietdata=="Grazer"))
+summary(MSTlm2.2)
+MSTlm3.2 <- lm(MASSETER.log~length.log+LDMC,data=subset(skulldiet,Dietdata=="Grazer"))
+summary(MSTlm3.2)
+MSTlm4.2 <- lm(MASSETER.log~length.log+leafN.sqrt,data=subset(skulldiet,Dietdata=="Grazer"))
+summary(MSTlm4.2)
+
+
+
+MZWlm1.3<-update(MZWlm1.1,.~.-length.log)
+summary(MZWlm1.3)
+MZWlm2.3<-update(MZWlm2.1,.~.-length.log)
+summary(MZWlm2.3)
+MZWlm3.3<-update(MZWlm3.1,.~.-length.log)
+summary(MZWlm3.3)
+MZWlm4.3<-update(MZWlm4.1,.~.-length.log)
+summary(MZWlm4.3)
+
+MZWlm1.4<-update(MZWlm1.2,.~.-length.log)
+summary(MZWlm1.4)
+MZWlm2.4<-update(MZWlm2.2,.~.-length.log)
+summary(MZWlm2.4)
+MZWlm3.4<-update(MZWlm3.2,.~.-length.log)
+summary(MZWlm3.4)
+MZWlm4.4<-update(MZWlm4.2,.~.-length.log)
+summary(MZWlm4.4)
+
+
+MSTlm1.3<-update(MSTlm1.1,.~.-length.log)
+summary(MSTlm1.3)
+MSTlm2.3<-update(MSTlm2.1,.~.-length.log)
+summary(MSTlm2.3)
+MSTlm3.3<-update(MSTlm3.1,.~.-length.log)
+summary(MSTlm3.3)
+MSTlm4.3<-update(MSTlm4.1,.~.-length.log)
+summary(MSTlm4.3)
+
+MSTlm1.4<-update(MSTlm1.2,.~.-length.log)
+summary(MSTlm1.4)
+MSTlm2.4<-update(MSTlm2.2,.~.-length.log)
+summary(MSTlm2.4)
+MSTlm3.4<-update(MSTlm3.2,.~.-length.log)
+summary(MSTlm3.4)
+MSTlm4.4<-update(MSTlm4.2,.~.-length.log)
+summary(MSTlm4.4)
+
+
+
+
+
+skp1<-ggplot(skulldiet,aes(x=logLArea,y=MZW.log))+geom_point()+geom_smooth(method="lm")+theme_classic();
+skp2<-ggplot(skulldiet,aes(x=logSLA,y=MZW.log))+geom_point()+geom_smooth(method="lm")+theme_classic();
+skp3<-ggplot(skulldiet,aes(x=LDMC,y=MZW.log))+geom_point()+geom_smooth(method="lm")+theme_classic();
+skp4<-ggplot(skulldiet,aes(x=leafN.sqrt,y=MZW.log))+geom_point()+geom_smooth(method="lm")+theme_classic();
+skp5<-ggplot(skulldiet,aes(x=logLArea,y=MASSETER.log))+geom_point()+geom_smooth(method="lm")+theme_classic();
+skp6<-ggplot(skulldiet,aes(x=logSLA,y=MASSETER.log))+geom_point()+geom_smooth(method="lm")+theme_classic();
+skp7<-ggplot(skulldiet,aes(x=LDMC,y=MASSETER.log))+geom_point()+geom_smooth(method="lm")+theme_classic();
+skp8<-ggplot(skulldiet,aes(x=leafN.sqrt,y=MASSETER.log))+geom_point()+geom_smooth(method="lm")+theme_classic()
+
+library(patchwork)
+skp1+skp2+skp3+skp4+skp5+skp6+skp7+skp8+plot_layout(ncol=4,nrow=2)
+
+```
