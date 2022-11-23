@@ -207,7 +207,7 @@ p3<-ggplot(grasstrait,aes(x=arid.sqrt,y=logLArea))+geom_point()+geom_smooth(meth
 p4<-ggplot(grasstrait,aes(x=arid.sqrt,y=leafN.sqrt))+geom_point()+geom_smooth(method="lm")
 library(patchwork)
 p1+p2+p3+p4
-
+summary(lm(logLArea~arid.sqrt, data=grasstrait))
 ```
 
 Now try leaf thickness
@@ -303,12 +303,44 @@ coordinates(grassdistri)<-c("longmid","latmid")
 proj4string(grassdistri) <- CRS('+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs')
 GrassDistri <- grassdistri@data %>% count(Species)
 GrassDistri$sp.file <- paste0("~/Desktop/phD/AFEC-X/GrassGang/data/GrassDistri/",GrassDistri$Species,".csv")
-head(cellulose)
-dim(cellulose)
-all(cellulose$Species%in%GrassDistri$Species)
-summary(cellulose$NDF)
 
-cellulose2 <- unique(cellulose[,-ncol(cellulose)]) %>% filter(!is.na(NDF))
+head(cell_append)
+dim(cell_append)
+
+
+# See C4 plants first
+cellulose2 <- cell_append %>% filter(Pathway=="C4")
+Global_Cell$cell.count<-0
+Global_Cell$NDF.sum<-0
+
+pb <- txtProgressBar(min=0,max=nrow(cellulose2))
+for(i in 1:nrow(cellulose2)){
+  setTxtProgressBar(pb,i)
+  tmp <- fread(GrassDistri[GrassDistri$Species==cellulose2$Species[i],"sp.file"])
+  Global_Cell[Global_Cell$ID%in%tmp$x,"cell.count"] <-Global_Cell[Global_Cell$ID%in%tmp$x,"cell.count"]+1
+  Global_Cell[Global_Cell$ID%in%tmp$x,"NDF.sum"] <-Global_Cell[Global_Cell$ID%in%tmp$x,"NDF.sum"]+cellulose2$NDF[i]
+}
+close(pb)
+
+
+Global_Cell$NDF.mean <- Global_Cell$NDF.sum/Global_Cell$cell.count
+library(raster)
+plot(rasterFromXYZ(Global_Cell[,c("x","y","NDF.mean")]))
+
+Glo.cell <- Global_Cell[Global_Cell$cell.count>0,]
+
+summary(Glo.cell$cell.count)
+Glo.cell$AI.sqrt <- sqrt(Glo.cell$AI)
+Glo.cell$NDF.log <- log(Glo.cell$NDF.mean)
+ggplot(Glo.cell,aes(x=AI.sqrt,y=NDF.log))+geom_point()+geom_smooth(method="lm")
+
+
+summary(lm(NDF.log~AI.sqrt,data=Glo.cell))
+
+
+
+#C3 then
+cellulose2 <- cell_append %>% filter(Pathway=="C3")
 Global_Cell$cell.count<-0
 Global_Cell$NDF.sum<-0
 
@@ -335,6 +367,67 @@ ggplot(Glo.cell,aes(x=AI.sqrt,y=NDF.log))+geom_point()+geom_smooth(method="lm")
 
 
 summary(lm(NDF.log~AI.sqrt,data=Glo.cell))
+
+```
+Next I want to see the relationship between aridity index and Cellulose
+```{r}
+# C4 first
+cellulose2 <- cell_append %>% filter(Pathway=="C4"&!is.na(Cellulose))
+Global_Cell$cell.count<-0
+Global_Cell$Cellulose.sum<-0
+
+pb <- txtProgressBar(min=0,max=nrow(cellulose2))
+for(i in 1:nrow(cellulose2)){
+  setTxtProgressBar(pb,i)
+  tmp <- fread(GrassDistri[GrassDistri$Species==cellulose2$Species[i],"sp.file"])
+  Global_Cell[Global_Cell$ID%in%tmp$x,"cell.count"] <-Global_Cell[Global_Cell$ID%in%tmp$x,"cell.count"]+1
+  Global_Cell[Global_Cell$ID%in%tmp$x,"Cellulose.sum"] <-Global_Cell[Global_Cell$ID%in%tmp$x,"Cellulose.sum"]+cellulose2$Cellulose[i]
+}
+close(pb)
+
+
+Global_Cell$Cellulose.mean <- Global_Cell$Cellulose.sum/Global_Cell$cell.count
+
+plot(rasterFromXYZ(Global_Cell[,c("x","y","Cellulose.mean")]))
+
+Glo.cell <- Global_Cell[Global_Cell$cell.count>0,]
+
+summary(Glo.cell$cell.count)
+Glo.cell$AI.sqrt <- sqrt(Glo.cell$AI)
+Glo.cell$Cellulose.log <- log(Glo.cell$Cellulose.mean)
+ggplot(Glo.cell,aes(x=AI.sqrt,y=Cellulose.log))+geom_point()+geom_smooth(method="lm")
+
+
+summary(lm(Cellulose.log~AI.sqrt,data=Glo.cell))
+
+# C3 then
+cellulose2 <- cell_append %>% filter(Pathway=="C3"&!is.na(Cellulose))
+Global_Cell$cell.count<-0
+Global_Cell$Cellulose.sum<-0
+
+pb <- txtProgressBar(min=0,max=nrow(cellulose2))
+for(i in 1:nrow(cellulose2)){
+  setTxtProgressBar(pb,i)
+  tmp <- fread(GrassDistri[GrassDistri$Species==cellulose2$Species[i],"sp.file"])
+  Global_Cell[Global_Cell$ID%in%tmp$x,"cell.count"] <-Global_Cell[Global_Cell$ID%in%tmp$x,"cell.count"]+1
+  Global_Cell[Global_Cell$ID%in%tmp$x,"Cellulose.sum"] <-Global_Cell[Global_Cell$ID%in%tmp$x,"Cellulose.sum"]+cellulose2$Cellulose[i]
+}
+close(pb)
+
+
+Global_Cell$Cellulose.mean <- Global_Cell$Cellulose.sum/Global_Cell$cell.count
+
+plot(rasterFromXYZ(Global_Cell[,c("x","y","Cellulose.mean")]))
+
+Glo.cell <- Global_Cell[Global_Cell$cell.count>0,]
+
+summary(Glo.cell$cell.count)
+Glo.cell$AI.sqrt <- sqrt(Glo.cell$AI)
+Glo.cell$Cellulose.log <- log(Glo.cell$Cellulose.mean)
+ggplot(Glo.cell,aes(x=AI.sqrt,y=Cellulose.log))+geom_point()+geom_smooth(method="lm")
+
+
+summary(lm(Cellulose.log~AI.sqrt,data=Glo.cell))
 ```
 
 ##AusTraits

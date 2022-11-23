@@ -453,6 +453,23 @@ MSTlm4.4<-update(MSTlm4.2,.~.-length.log)
 summary(MSTlm4.4)
 
 
+MZWlm1.5<-update(MZWlm1,.~.-length.log)
+summary(MZWlm1.5)
+MZWlm2.5<-update(MZWlm2,.~.-length.log)
+summary(MZWlm1.5)
+MZWlm3.5<-update(MZWlm3,.~.-length.log)
+summary(MZWlm1.5)
+MZWlm4.5<-update(MZWlm4,.~.-length.log)
+summary(MZWlm1.5)
+
+MSTlm1.5<-update(MSTlm1,.~.-length.log)
+summary(MSTlm1.5)
+MSTlm2.5<-update(MSTlm2,.~.-length.log)
+summary(MSTlm1.5)
+MSTlm3.5<-update(MSTlm3,.~.-length.log)
+summary(MSTlm1.5)
+MSTlm4.5<-update(MSTlm4,.~.-length.log)
+summary(MSTlm1.5)
 
 
 
