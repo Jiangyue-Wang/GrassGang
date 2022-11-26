@@ -33,8 +33,9 @@ require(graphics)
 Diet data is collected from published articles, reference within table.
 
 ```{r Data processing from excel}
+
 #specify file location
-diet.data <- "/Users/lilywang/Desktop/phD/AFEC-X/Skull/Grass Gang/20221118_Herbivore_Diet_Database Grazers.xlsx"
+diet.data <- "/Users/lilywang/Desktop/phD/AFEC-X/GrassGang/data/20221118_Herbivore_Diet_Database Grazers.xlsx"
 
 excel_sheets(path = diet.data)
 
@@ -42,8 +43,22 @@ excel_sheets(path = diet.data)
 diet <- read_excel(diet.data, "Diet matrix",skip=5, col_types = c(rep("text",13),rep("numeric",12),rep("text",5),rep("numeric",33),rep("text",5)))
 
 diet <- data.frame(diet)
+summary(diet[,c("Binomial.name","logLArea")])
+dplist <- as.data.frame(diet$Binomial.name)
+colnames(dplist)[1]<-"Binomial.name"
+leaflen <- read.csv("~/Desktop/phD/AFEC-X/GrassGang/data/GrassLeafLength.csv")
+head(leaflen)
+leaflen <- leaflen[,-2]
+colnames(leaflen)[1]<-"Binomial.name"
+leaflen<- leaflen[,c(1,2)]
+leaflen <- aggregate(leaflen,Value~Binomial.name,FUN=mean)
+dplen <- left_join(dplist,leaflen)
+
 
 head(diet)
+
+diet<- diet[,c(1:25,25,26:68)]
+
 diet$Binomial.name <- as.factor(diet$Binomial.name)
 diet$Study<-as.factor(diet$Study)
 diet$Output.Binomial.name <- as.factor(diet$Output.Binomial.name)
@@ -485,4 +500,19 @@ skp8<-ggplot(skulldiet,aes(x=leafN.sqrt,y=MASSETER.log))+geom_point()+geom_smoot
 library(patchwork)
 skp1+skp2+skp3+skp4+skp5+skp6+skp7+skp8+plot_layout(ncol=4,nrow=2)
 
+```
+```{r}
+ggplot(skulldiet,aes(x=logLArea,y=MZW.log))+geom_point()+geom_smooth(method="lm")+theme_classic()+xlab("Leaf Area (log)")+ylab("Muzzle Width (log)")
+summary(lm(MZW.log~logLArea,skulldiet))
+ggsave("~/Desktop/phD/AFEC-X/GrassGang/Figures/MZWplot.png",width=6,height=4,dpi=600,units="in")
+
+MZWlmf<-lm(MZW.log~logLArea+length.log,skulldiet)
+MZWnewdata<- data.frame(logLArea=seq(-0.05,3.5,0.05),length.log=mean(skulldiet$length.log))
+MZWpred<-predict(MZWlmf,MZWnewdata,se.fit=T)
+MZWnewdata$pred<-MZWpred$fit
+MZWnewdata$low<-MZWpred$fit-MZWpred$se.fit*1.96
+MZWnewdata$up<-MZWpred$fit+MZWpred$se.fit*1.96
+
+ggplot(skulldiet,aes(x=logLArea,y=MZW.log))+geom_point()+geom_smooth(data=MZWnewdata,aes(x=logLArea,y=pred,ymin=low,ymax=up),stat="identity")+theme_classic()+xlab("Leaf Area (log)")+ylab("Muzzle Width (log)")
+ggsave("~/Desktop/phD/AFEC-X/GrassGang/Figures/H2MZW.pdf",width=4.5,height=3,dpi=600,units="in")
 ```

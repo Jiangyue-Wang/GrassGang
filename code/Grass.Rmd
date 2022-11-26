@@ -167,12 +167,31 @@ cell_append <- data.frame(Species=c(cell_comp$Species,cell_new$Group.1),NDF=c(ce
 
 cell_append<-unique(cell_append)
 
-cell_append[cell_append$Species%in%cell_exist$Group.1,"Cellulose"] <- cell_exist[,"Cellulose"]
+
+for(i in 1:nrow(cell_append)){
+  if(cell_append$Species[i]%in%cell_exist$Group.1){
+    if(is.na(cell_append$Cellulose[i])){
+      cell_append$Cellulose[i]<-cell_exist[cell_exist$Group.1==cell_append$Species[i],"Cellulose"]
+    }
+  }
+}
+cell_append[cell_append$Species=="Aristida longiseta ","Species"]<-"Aristida purpurea"
+cell_append[cell_append$Species=="Digitaria insulares","Species"]<-"Digitaria insularis"
+for(i in 1:nrow(cell_append)){
+  if(cell_append$Species[i]%in%GrassDataset$Species_old){
+    if(is.na(cell_append$arid.sqrt[i])){
+      cell_append$arid.sqrt[i]<-sqrt(GrassDataset[GrassDataset$Species_old==cell_append$Species[i],"aridity.ch"])
+    }
+  }
+}
 
 
+
+hist(log(cell_append$Cellulose))
+cell_append$log.Cellulose<-log(cell_append$Cellulose)
 
 cell_append%>%filter(!is.na(Pathway)&Pathway!="both")%>%ggplot()+aes(x=arid.sqrt,y=NDF,colour=Pathway)+geom_point()+geom_smooth(method="lm")
-cell_append%>%filter(!is.na(Pathway)&Pathway!="both")%>%ggplot()+aes(x=arid.sqrt,y=Cellulose,colour=Pathway)+geom_point()+geom_smooth(method="lm")
+cell_append%>%filter(!is.na(Pathway)&Pathway!="both")%>%ggplot()+aes(x=arid.sqrt,y=log.Cellulose,colour=Pathway)+geom_point()+geom_smooth(method="lm")
 
 
 
@@ -189,6 +208,7 @@ Not pattern we suggested, Now I will try leaf trait
 
 #Leaf trait
 
+## leaf area, SLA, LDMC and leafN
 ```{r}
 trait <- read.csv("/Users/lilywang/Desktop/phD/AFEC-X/GrassGang/data/TRY_traitdata_poales.csv")
 head(trait)
@@ -210,7 +230,7 @@ p1+p2+p3+p4
 summary(lm(logLArea~arid.sqrt, data=grasstrait))
 ```
 
-Now try leaf thickness
+##Now try leaf thickness
 
 ```{r}
 library(data.table)
@@ -240,6 +260,99 @@ thick %>% filter(count>=10&!is.na(thick.log))%>%ggplot()+aes(x=arid.sqrt,y=thick
 
 ```
 
+##Now try leaf length
+```{r}
+leaf_length <- fread("~/Desktop/phD/AFEC-X/GrassGang/data/leaf_length/23622.txt")
+head(leaf_length,n=10)
+leaflen <- leaf_length %>% filter(DataName=="Leaf length",AccSpeciesName%in%GrassDataset$accepted_name)
+rm(leaf_length)
+gc()
+
+leaflen <- leaflen %>% dplyr::select(AccSpeciesName,OrigValueStr,OrigUnitStr) %>% mutate(Value = as.numeric(OrigValueStr)) %>% dplyr::select(AccSpeciesName,Value,OrigUnitStr)
+
+head(leaflen)
+leaflen[leaflen$OrigUnitStr=="cm","Value"]<-leaflen[leaflen$OrigUnitStr=="cm","Value"]*10
+
+leaflen <- leaflen[,-3]
+summary(leaflen)
+colnames(leaflen)[1]<-"accepted_name"
+leaflen <- left_join(leaflen,GrassDataset[,c("accepted_name","aridity.ch","Photosynthetic.types")])
+leaflen <- aggregate(leaflen,.~accepted_name+Photosynthetic.types,mean)
+leaflen$arid.sqrt <- sqrt(leaflen$aridity.ch)
+hist(leaflen$Value)
+leaflen$log.length<-log(leaflen$Value)
+hist(leaflen$log.length)
+
+leaflen %>% filter(Photosynthetic.types!="both"&Photosynthetic.types!="unknown") %>% ggplot()+aes(x=arid.sqrt,y=log.length,color=Photosynthetic.types)+geom_point(alpha=0.2)+geom_smooth(method="lm")
+
+# write.csv(leaflen,"~/Desktop/phD/AFEC-X/GrassGang/data/GrassLeafLength.csv",row.names=F)
+```
+
+##Now try leaf toughness
+```{r}
+tough <- fread("~/Desktop/phD/AFEC-X/GrassGang/data/leaf texture_sclerophylly_physical strength_ toughness/23646.txt")
+head(tough)
+tough$OriglName<-as.factor(tough$OriglName)
+leaftgh <- tough %>% filter(OriglName=="LeafToughness",AccSpeciesName%in%GrassDataset$accepted_name) %>% dplyr::select(AccSpeciesName,OrigValueStr,OrigUnitStr)
+head(leaftgh)
+
+leaftgh <- leaftgh %>% dplyr::select(AccSpeciesName,OrigValueStr) %>%mutate(Value=as.numeric(OrigValueStr)) %>% dplyr::select(AccSpeciesName,Value)%>% aggregate(.~AccSpeciesName,mean)
+colnames(leaftgh)[1]<-"accepted_name"
+leaftgh <- left_join(leaftgh,GrassDataset[,c("accepted_name","aridity.ch","Photosynthetic.types")])
+leaftgh <- aggregate(leaftgh,.~accepted_name+Photosynthetic.types,mean)
+leaftgh$arid.sqrt <- sqrt(leaftgh$aridity.ch)
+
+
+leaftgh%>%filter(Photosynthetic.types!="both"&Photosynthetic.types!="unknown") %>% ggplot()+aes(x=arid.sqrt,y=Value,color=Photosynthetic.types)+geom_point(alpha=1)+geom_smooth(method="lm")+ylab("Toughness")
+```
+
+## Leaf toughness data we collected
+```{r}
+coltgh <- read_xlsx("~/Desktop/phD/AFEC-X/GrassGang/data/Toughness data.xlsx",sheet=1)
+head(coltgh)
+coltgh <- coltgh %>% dplyr::select(Species,Mean) %>% filter(Species!="Unknown")
+
+xtbg <- read.csv("~/Desktop/phD/AFEC-X/GrassGang/data/GrassInXTBG.csv")
+colnames(coltgh)[1]<-"Binomial"
+coltgh <- left_join(coltgh,xtbg[,c("Binomial","aridity.index")])
+summary(coltgh)
+
+for(i in 1:nrow(coltgh)){
+  if(is.na(coltgh$aridity.index[i])){
+    if(coltgh$Binomial[i]%in%GrassDataset$Species_old){
+      coltgh[i,"aridity.index"] <- GrassDataset[GrassDataset$Species_old==coltgh$Binomial[i],"aridity.ch"]
+    }
+  }
+}
+coltgh[12,3]<-1.286243
+coltgh[39,3]<-0.6402801
+
+coltgh_agg <- aggregate(coltgh,Mean~Binomial+aridity.index,FUN=mean)
+coltgh_agg$arid.sqrt <- sqrt(coltgh_agg$aridity.index)
+hist(log(coltgh_agg$Mean))
+coltgh_agg$log.tough <- log(coltgh_agg$Mean)
+coltgh_agg %>% filter(log.tough<=2.4&log.tough>=0.8)%>%ggplot()+aes(x=arid.sqrt,y=log.tough)+geom_point()+geom_smooth(method="lm")
+summary(lm(log.tough~arid.sqrt,data=coltgh_agg[coltgh_agg$log.tough<=2.4&coltgh_agg$log.tough>=0.8,]))
+
+
+
+head(leaftgh)
+coltgh_append <- data.frame(accepted_name=c(coltgh_agg$Binomial,leaftgh$accepted_name),arid.sqrt=c(coltgh_agg$arid.sqrt,leaftgh$arid.sqrt),Toughness=c(coltgh_agg$Mean,leaftgh$Value))
+
+coltgh_append$log.tough <- log(coltgh_append$Toughness)
+coltgh_append %>% ggplot()+aes(x=arid.sqrt,y=log.tough)+geom_point()+geom_smooth(method="lm")
+
+
+coltgh_append <- left_join(coltgh_append,GrassDataset[,c("accepted_name","Photosynthetic.types")])
+coltgh_append <- aggregate(coltgh_append,.~accepted_name+Photosynthetic.types,FUN=mean)
+coltgh_append %>% ggplot()+aes(x=arid.sqrt,y=log.tough,color=Photosynthetic.types)+geom_point()+geom_smooth(method="lm")
+
+summary(lm(log.tough~arid.sqrt*Photosynthetic.types,data=coltgh_append))
+
+
+xtbg_now<-xtbg[,c(1,2,5)]
+xtbg_now <- left_join(xtbg_now,coltgh_agg[,c(1,3)])
+```
 ##Grass distribution data
 ```{r, eval=FALSE}
 grassdistri <- fread("~/Desktop/phD/AFEC-X/GrassGang/data/BIEN_poaceae.csv")
@@ -428,6 +541,71 @@ ggplot(Glo.cell,aes(x=AI.sqrt,y=Cellulose.log))+geom_point()+geom_smooth(method=
 
 
 summary(lm(Cellulose.log~AI.sqrt,data=Glo.cell))
+```
+
+
+
+##Plot generating for final presentation
+```{r}
+NDFplotC34<-cell_append%>%filter(!is.na(Pathway)&Pathway!="both")%>%mutate(Photosynthetic.types=Pathway)%>%ggplot()+aes(x=arid.sqrt,y=NDF,colour=Photosynthetic.types)+geom_point(alpha=0.3)+geom_smooth(method="lm")+xlab("")+ylab("NDF")+theme_classic()
+CellplotC34<-cell_append%>%filter(!is.na(Pathway)&Pathway!="both")%>%mutate(Photosynthetic.types=Pathway)%>%ggplot()+aes(x=arid.sqrt,y=log.Cellulose,colour=Photosynthetic.types)+geom_point(alpha=0.3)+geom_smooth(method="lm")+xlab("")+ylab("Cellulose (log)")+theme_classic()
+NDFplot<-cell_append%>%ggplot()+aes(x=arid.sqrt,y=NDF)+geom_point(size=1,alpha=0.5)+geom_smooth(method="lm")+xlab("")+ylab("NDF")+theme_classic()
+
+Cellplot<-cell_append%>%ggplot()+aes(x=arid.sqrt,y=log.Cellulose)+geom_point()+geom_smooth(method="lm")+ylab("Cellulose (log)")+theme_classic()+xlab("Aridity Index")
+summary(lm(log.Cellulose~arid.sqrt, data=cell_append))
+
+
+LAnewdata <- data.frame(arid.sqrt=seq(0,1.5,0.01))
+LAlm<-lm(logLArea~arid.sqrt, data=grasstrait)
+LApred<-predict(LAlm,LAnewdata,se.fit=T)
+LAnewdata$log.upw<-LApred$fit+1.96*LApred$se.fit
+LAnewdata$log.low<-LApred$fit-1.96*LApred$se.fit
+LAnewdata$pred <- exp(LApred$fit)
+LAnewdata$up<-exp(LAnewdata$log.upw)
+LAnewdata$lo<-exp(LAnewdata$log.low)
+LAplot<-grasstrait%>%mutate(LA=exp(logLArea))%>%ggplot()+aes(x=arid.sqrt,y=LA)+geom_point()+geom_smooth(data=LAnewdata,aes(x=arid.sqrt,y=pred,ymin=lo,ymax=up),stat="identity")+theme_classic()+xlab("Aridity Index")+ylab("Leaf Area")+ylim(0,35)
+
+
+LAplotC34<-ggplot(grasstrait[!is.na(grasstrait$Photosynthetic.types)&grasstrait$Photosynthetic.types!="both",],aes(x=arid.sqrt,y=logLArea,color=Photosynthetic.types))+geom_point(alpha=0.3)+geom_smooth(method="lm")+theme_classic()+xlab("")+ylab("Leaf Area (log)")
+grasstrait2<-grasstrait[!is.na(grasstrait$Photosynthetic.types)&grasstrait$Photosynthetic.types!="both",]
+summary(lm(logLArea~arid.sqrt*Photosynthetic.types, data=grasstrait2))
+summary(lm(logLArea~arid.sqrt, data=grasstrait))
+
+thickplot<-thick %>% filter(count>=10&!is.na(thick.log))%>%ggplot()+aes(x=arid.sqrt,y=thick.log)+geom_point(size=1,alpha=0.5)+geom_smooth(method="lm")+theme_classic()+xlab("")+ylab("Thickness (log)")
+thickplotC34<-thick %>% filter(count>=10&!is.na(thick.log),Photosynthetic.types!="both"&!is.na(Photosynthetic.types))%>%ggplot()+aes(x=arid.sqrt,y=thick.log,color=Photosynthetic.types)+geom_point(alpha=0.3)+geom_smooth(method="lm")+theme_classic()+xlab("")+ylab("Thickness (log)")
+summary(lm(thick.log~arid.sqrt,data=thick))
+summary(lm(thick.log~arid.sqrt*Photosynthetic.types, data=thick[thick$count>=10&!is.na(thick$thick.log)&thick$Photosynthetic.types!="both"&!is.na(thick$Photosynthetic.types),]))
+
+coltgh_append2 <- data.frame(accepted_name=c(coltgh_agg$Binomial,leaftgh$accepted_name),arid.sqrt=c(coltgh_agg$arid.sqrt,leaftgh$arid.sqrt),Toughness=c(coltgh_agg$Mean,leaftgh$Value))
+
+coltgh_append2$log.tough <- log(coltgh_append2$Toughness)
+
+toughplot<-coltgh_append2 %>% filter(Toughness<=11)%>% ggplot()+aes(x=arid.sqrt,y=log.tough)+geom_point(size=1,alpha=0.5)+geom_smooth(method="lm")+theme_classic()+xlab("")+ylab("Toughness (log)")
+
+toughplotC34<-coltgh_append %>% filter(Toughness<=11)%>% ggplot()+aes(x=arid.sqrt,y=log.tough,color=Photosynthetic.types)+geom_point(alpha=0.3)+geom_smooth(method="lm")+theme_classic()+xlab("")+ylab("Toughness (log)")
+
+summary(lm(log.tough~arid.sqrt*Photosynthetic.types,data=coltgh_append))
+summary(lm(log.tough~arid.sqrt,data=coltgh_append2))
+
+toughplot2<-coltgh_agg %>% filter(log.tough<=2.4&log.tough>=0.8)%>%ggplot()+aes(x=arid.sqrt,y=log.tough)+geom_point()+geom_smooth(method="lm")+theme_classic()+ylab("Toughness (log)")+xlab("Aridity Index")
+
+summary(lm(log.tough~arid.sqrt,data=coltgh_agg[coltgh_agg$log.tough<=2.4&coltgh_agg$log.tough>=0.8,]))
+
+library(patchwork)
+LAplot+toughplot2+Cellplot
+ggsave("~/Desktop/phD/AFEC-X/GrassGang/Figures/Hypo1.pdf",width=8,height=4,dpi=600,units="in")
+
+LAplotC34+thickplotC34+toughplotC34+NDFplotC34+CellplotC34+guide_area()+plot_layout(ncol=3,nrow=2,guides = "collect")
+ggsave("~/Desktop/phD/AFEC-X/GrassGang/Figures/Hypo2.pdf",width=8,height=4,dpi=600,units="in")
+
+
+LAplot
+ggsave("~/Desktop/phD/AFEC-X/GrassGang/Figures/Hypo1LAplot.pdf",width=4.5,height=3,dpi=600,units="in")
+Cellplot
+ggsave("~/Desktop/phD/AFEC-X/GrassGang/Figures/Hypo1Cellplot.pdf",width=4.5,height=3,dpi=600,units="in")
+toughplot2
+ggsave("~/Desktop/phD/AFEC-X/GrassGang/Figures/Hypo1Toughplot.pdf",width=4.5,height=3,dpi=600,units="in")
+
 ```
 
 ##AusTraits

@@ -1,0 +1,17 @@
+---
+title: "Skull-Aridity"
+author: "WangJY"
+date: "2022-11-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+skull <- read.csv("~/Desktop/phD/AFEC-X/GrassGang/data/skulldata_Grazer.csv")
+redlistAPI<- "074f76c8df75a1575489ddab78d7df8a24e7e47476d53beb783829ac0da2362b"
+library(red)
+library(rredlist)
+```
