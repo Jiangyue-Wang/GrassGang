@@ -515,4 +515,7 @@ MZWnewdata$up<-MZWpred$fit+MZWpred$se.fit*1.96
 
 ggplot(skulldiet,aes(x=logLArea,y=MZW.log))+geom_point()+geom_smooth(data=MZWnewdata,aes(x=logLArea,y=pred,ymin=low,ymax=up),stat="identity")+theme_classic()+xlab("Leaf Area (log)")+ylab("Muzzle Width (log)")
 ggsave("~/Desktop/phD/AFEC-X/GrassGang/Figures/H2MZW.pdf",width=4.5,height=3,dpi=600,units="in")
+
+ggplot(skulldiet,aes(x=logLArea,y=MZW.log))+geom_point()+geom_smooth(method="lm")+theme_classic()+xlab("Leaf Area (log)")+ylab("Muzzle Width (log)")
+ggsave("~/Desktop/phD/AFEC-X/GrassGang/Figures/H2MZW-nolength.pdf",width=4.5,height=3,dpi=600,units="in")
 ```
